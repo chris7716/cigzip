@@ -11,6 +11,7 @@ use lib_tracepoints::{
     mixed_tracepoints_to_cigar, tracepoints_to_cigar, variable_tracepoints_to_cigar,
     MixedRepresentation,
 };
+use lib_tracepoints::{CigarPosition, TPBundle};
 #[cfg(debug_assertions)]
 use lib_wfa2::affine_wavefront::AffineWavefronts;
 use log::{error, info};
@@ -858,6 +859,10 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
         };
         let cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
 
+        // Extract aend and bend from PAF fields
+        let aend: i64 = fields[3].parse().unwrap_or(0);
+        let bend: i64 = fields[8].parse().unwrap_or(0);
+
         // Convert CIGAR based on options and add type prefix
         let tracepoints_str = if mixed {
             // Use mixed representation
@@ -869,8 +874,31 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
             format_variable_tracepoints(&tp)
         } else {
             // Use standard tracepoints
-            let tp = cigar_to_tracepoints(cigar, max_diff);
-            format_tracepoints(&tp)
+            // let tp = cigar_to_tracepoints(cigar, max_diff);
+            // format_tracepoints(&tp)
+            // Use cigar2tp for standard tracepoints
+            let mut c = CigarPosition {
+                apos: 0,
+                bpos: 0,
+                cptr: 0,
+                len: 0,
+            };
+            let mut bundle = TPBundle {
+                diff: 0,
+                tlen: 0,
+                trace: Vec::new(),
+            };
+            lib_tracepoints::cigar2tp(&mut c, cigar, aend, bend, 100 as i64, &mut bundle);
+
+            // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
+            let mut tp_vec = Vec::new();
+            let trace = &bundle.trace;
+            let mut i = 0;
+            while i + 1 < trace.len() {
+                tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
+                i += 2;
+            }
+            format_tracepoints(&tp_vec)
         };
 
         // Print the result
