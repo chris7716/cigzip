@@ -4,6 +4,7 @@ use flate2::read::MultiGzDecoder;
 use indicatif::ProgressBar;
 #[cfg(debug_assertions)]
 use indicatif::ProgressStyle;
+use lib_tracepoints::tracepoints_to_fastga_cigar;
 #[cfg(debug_assertions)]
 use lib_tracepoints::{align_sequences_wfa, cigar_ops_to_cigar_string};
 use lib_tracepoints::{
@@ -1061,13 +1062,21 @@ fn process_decompress_chunk(
             TracepointType::Standard => {
                 // Standard tracepoints
                 let tracepoints = parse_tracepoints(tracepoints_str);
-                tracepoints_to_cigar(
+                // tracepoints_to_cigar(
+                //     &tracepoints,
+                //     &query_seq,
+                //     &target_seq,
+                //     0,
+                //     0,
+                //     (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2),
+                // );
+                tracepoints_to_fastga_cigar(
                     &tracepoints,
                     &query_seq,
                     &target_seq,
                     0,
                     0,
-                    (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2),
+                    (0, 1, 1),
                 )
             }
         };
