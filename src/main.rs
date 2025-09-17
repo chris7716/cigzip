@@ -583,100 +583,141 @@ fn process_debug_chunk(
         };
 
         // Create thread-local aligner
-        let mut aligner = AffineWavefronts::with_penalties_affine2p(
-            0, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
-        );
-        let realn_cigar = align_sequences_wfa(&query_seq, &target_seq, &mut aligner);
-        let realn_cigar = cigar_ops_to_cigar_string(&realn_cigar);
-        // let paf_cigar = &realn_cigar;
+        // let mut aligner = AffineWavefronts::with_penalties_affine2p(
+        //     0, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
+        // );
+        // let realn_cigar = align_sequences_wfa(&query_seq, &target_seq, &mut aligner);
+        // let realn_cigar = cigar_ops_to_cigar_string(&realn_cigar);
+        // // let paf_cigar = &realn_cigar;
 
-        // Convert CIGAR to tracepoints using query (A) and target (B) coordinates.
-        let tracepoints = cigar_to_tracepoints(&paf_cigar, max_diff);
-        let variable_tracepoints = cigar_to_variable_tracepoints(paf_cigar, max_diff);
+        // // Convert CIGAR to tracepoints using query (A) and target (B) coordinates.
+        // let tracepoints = cigar_to_tracepoints(&paf_cigar, max_diff);
+        // let variable_tracepoints = cigar_to_variable_tracepoints(paf_cigar, max_diff);
 
-        // Compare tracepoints (allowing variable tracepoints to have None for second coordinate)
-        if tracepoints
-            .iter()
-            .zip(variable_tracepoints.iter())
-            .any(|(a, b)| {
-                a.0 != b.0 || (b.1.is_some() && Some(a.1) != b.1)
-            })
-        {
-            println!("Tracepoints mismatch! {}", line);
-            println!("\t         tracepoints: {:?}", tracepoints);
-            println!("\tvariable_tracepoints: {:?}", variable_tracepoints);
-            std::process::exit(1);
+        // // Compare tracepoints (allowing variable tracepoints to have None for second coordinate)
+        // if tracepoints
+        //     .iter()
+        //     .zip(variable_tracepoints.iter())
+        //     .any(|(a, b)| {
+        //         a.0 != b.0 || (b.1.is_some() && Some(a.1) != b.1)
+        //     })
+        // {
+        //     println!("Tracepoints mismatch! {}", line);
+        //     println!("\t         tracepoints: {:?}", tracepoints);
+        //     println!("\tvariable_tracepoints: {:?}", variable_tracepoints);
+        //     std::process::exit(1);
+        // }
+
+        // // Reconstruct the CIGAR from tracepoints.
+        // let cigar_from_tracepoints = tracepoints_to_cigar(
+        //     &tracepoints,
+        //     &query_seq,
+        //     &target_seq,
+        //     0,
+        //     0,
+        //     (mismatch,
+        //     gap_open1,
+        //     gap_ext1,
+        //     gap_open2,
+        //     gap_ext2),
+        // );
+        // let cigar_from_variable_tracepoints = variable_tracepoints_to_cigar(
+        //     &variable_tracepoints,
+        //     &query_seq,
+        //     &target_seq,
+        //     0,
+        //     0,
+        //     (mismatch,
+        //     gap_open1,
+        //     gap_ext1,
+        //     gap_open2,
+        //     gap_ext2),
+        // );
+
+        // let (matches, mismatches, insertions, inserted_bp, deletions, deleted_bp, paf_gap_compressed_id, paf_block_id) = calculate_cigar_stats(&paf_cigar);
+        // let (tracepoints_matches, tracepoints_mismatches, tracepoints_insertions, tracepoints_inserted_bp, tracepoints_deletions, tracepoints_deleted_bp, tracepoints_gap_compressed_id, tracepoints_block_id) = calculate_cigar_stats(&cigar_from_tracepoints);
+        // let (variable_tracepoints_matches, variable_tracepoints_mismatches, variable_tracepoints_insertions, variable_tracepoints_inserted_bp, variable_tracepoints_deletions, variable_tracepoints_deleted_bp, variable_tracepoints_gap_compressed_id, variable_tracepoints_block_id) = calculate_cigar_stats(&cigar_from_variable_tracepoints);
+        // let (realign_matches, realign_mismatches, realign_insertions, realign_inserted_bp, realign_deletions, realign_deleted_bp, realign_gap_compressed_id, realign_block_id) = calculate_cigar_stats(&realn_cigar);
+
+        // let score_from_realign = compute_alignment_score_from_cigar(&realn_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+        // let score_from_paf = compute_alignment_score_from_cigar(&paf_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+        // let score_from_tracepoints = compute_alignment_score_from_cigar(&cigar_from_tracepoints, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+        // let score_from_variable_tracepoints = compute_alignment_score_from_cigar(&cigar_from_variable_tracepoints, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+
+        // if cigar_from_tracepoints != cigar_from_variable_tracepoints || (paf_cigar != cigar_from_tracepoints && score_from_paf != score_from_tracepoints) //&& paf_gap_compressed_id != tracepoints_gap_compressed_id
+        // {
+        //     println!("CIGAR mismatch! {}", line);
+        //     println!("\t seqa: {}", String::from_utf8(query_seq.clone()).unwrap());
+        //     println!("\t seqb: {}", String::from_utf8(target_seq.clone()).unwrap());
+        //     println!("\t             CIGAR from realign: {}", realn_cigar);
+        //     println!("\t                 CIGAR from PAF: {}", paf_cigar);
+        //     println!("\t         CIGAR from tracepoints: {}", cigar_from_tracepoints);
+        //     println!("\tCIGAR from variable_tracepoints: {}", cigar_from_variable_tracepoints);
+        //     println!("\t             CIGAR score from realign: {}", score_from_realign);
+        //     println!("\t                 CIGAR score from PAF: {}", score_from_paf);
+        //     println!("\t         CIGAR score from tracepoints: {}", score_from_tracepoints);
+        //     println!("\tCIGAR score from variable tracepoints: {}", score_from_variable_tracepoints);
+        //     println!("\t              cigar stats from realign: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
+        //         realign_matches, realign_mismatches, realign_insertions, realign_inserted_bp, realign_deletions, realign_deleted_bp, realign_gap_compressed_id, realign_block_id);
+        //     println!("\t                  cigar stats from PAF: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
+        //         matches, mismatches, insertions, inserted_bp, deletions, deleted_bp, paf_gap_compressed_id, paf_block_id);
+        //     println!("\t cigar stats from          tracepoints: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
+        //         tracepoints_matches, tracepoints_mismatches, tracepoints_insertions, tracepoints_inserted_bp, tracepoints_deletions, tracepoints_deleted_bp, tracepoints_gap_compressed_id, tracepoints_block_id);
+        //     println!("\t cigar stats from variable_tracepoints: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
+        //         variable_tracepoints_matches, variable_tracepoints_mismatches, variable_tracepoints_insertions, variable_tracepoints_inserted_bp, variable_tracepoints_deletions, variable_tracepoints_deleted_bp, variable_tracepoints_gap_compressed_id, variable_tracepoints_block_id);
+        //     println!("\t         tracepoints: {:?}", tracepoints);
+        //     println!("\tvariable_tracepoints: {:?}", variable_tracepoints);
+        //     println!("\t                 bounds CIGAR from PAF: {:?}", get_cigar_diagonal_bounds(&paf_cigar));
+        //     println!("\t         bounds CIGAR from tracepoints: {:?}", get_cigar_diagonal_bounds(&cigar_from_tracepoints));
+        //     println!("\tbounds CIGAR from variable_tracepoints: {:?}", get_cigar_diagonal_bounds(&cigar_from_variable_tracepoints));
+
+        //     let (deviation, d_min, d_max, max_gap) = compute_deviation(&cigar_from_tracepoints);
+        //     println!("\t                 deviation CIGAR from PAF: {:?}", compute_deviation(&paf_cigar));
+        //     println!("\t         deviation CIGAR from tracepoints: {:?}", (deviation, d_min, d_max, max_gap));
+        //     println!("\tdeviation CIGAR from variable_tracepoints: {:?}", compute_deviation(&cigar_from_variable_tracepoints));
+        //     // println!("=> Try using --wfa-heuristic=banded-static --wfa-heuristic-parameters=-{},{}\n", std::cmp::max(max_gap, -d_min), std::cmp::max(max_gap, d_max));
+        // }
+
+
+        let mut c = CigarPosition {
+            apos: query_start as i64,
+            bpos: target_start as i64,
+            cptr: 0,
+            len: 0,
+        };
+        let mut bundle = TPBundle {
+            diff: 0,
+            tlen: 0,
+            trace: Vec::new(),
+        };
+        // Extract aend and bend from PAF fields
+        let aend: i64 = fields[3].parse().unwrap_or(0);
+        let bend: i64 = fields[8].parse().unwrap_or(0);
+        lib_tracepoints::cigar2tp(&mut c, paf_cigar, aend, bend, 100 as i64, &mut bundle);
+
+        // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
+        let mut tp_vec = Vec::new();
+        let trace = &bundle.trace;
+        let mut i = 0;
+        while i + 1 < trace.len() {
+            tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
+            i += 2;
         }
 
-        // Reconstruct the CIGAR from tracepoints.
-        let cigar_from_tracepoints = tracepoints_to_cigar(
-            &tracepoints,
+        let fastga_cigar = tracepoints_to_fastga_cigar(
+            &tp_vec,
             &query_seq,
             &target_seq,
             0,
             0,
-            (mismatch,
-            gap_open1,
-            gap_ext1,
-            gap_open2,
-            gap_ext2),
-        );
-        let cigar_from_variable_tracepoints = variable_tracepoints_to_cigar(
-            &variable_tracepoints,
-            &query_seq,
-            &target_seq,
-            0,
-            0,
-            (mismatch,
-            gap_open1,
-            gap_ext1,
-            gap_open2,
-            gap_ext2),
+            (0, 1, 1),
         );
 
-        let (matches, mismatches, insertions, inserted_bp, deletions, deleted_bp, paf_gap_compressed_id, paf_block_id) = calculate_cigar_stats(&paf_cigar);
-        let (tracepoints_matches, tracepoints_mismatches, tracepoints_insertions, tracepoints_inserted_bp, tracepoints_deletions, tracepoints_deleted_bp, tracepoints_gap_compressed_id, tracepoints_block_id) = calculate_cigar_stats(&cigar_from_tracepoints);
-        let (variable_tracepoints_matches, variable_tracepoints_mismatches, variable_tracepoints_insertions, variable_tracepoints_inserted_bp, variable_tracepoints_deletions, variable_tracepoints_deleted_bp, variable_tracepoints_gap_compressed_id, variable_tracepoints_block_id) = calculate_cigar_stats(&cigar_from_variable_tracepoints);
-        let (realign_matches, realign_mismatches, realign_insertions, realign_inserted_bp, realign_deletions, realign_deleted_bp, realign_gap_compressed_id, realign_block_id) = calculate_cigar_stats(&realn_cigar);
+        let fastga_score = compute_edit_distance_alignment_score_from_cigar(&fastga_cigar).unwrap_or(0);
+        let original_score = compute_edit_distance_alignment_score_from_cigar(&paf_cigar).unwrap_or(0);
 
-        let score_from_realign = compute_alignment_score_from_cigar(&realn_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
-        let score_from_paf = compute_alignment_score_from_cigar(&paf_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
-        let score_from_tracepoints = compute_alignment_score_from_cigar(&cigar_from_tracepoints, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
-        let score_from_variable_tracepoints = compute_alignment_score_from_cigar(&cigar_from_variable_tracepoints, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
-
-        if cigar_from_tracepoints != cigar_from_variable_tracepoints || (paf_cigar != cigar_from_tracepoints && score_from_paf != score_from_tracepoints) //&& paf_gap_compressed_id != tracepoints_gap_compressed_id
-        {
-            println!("CIGAR mismatch! {}", line);
-            println!("\t seqa: {}", String::from_utf8(query_seq.clone()).unwrap());
-            println!("\t seqb: {}", String::from_utf8(target_seq.clone()).unwrap());
-            println!("\t             CIGAR from realign: {}", realn_cigar);
-            println!("\t                 CIGAR from PAF: {}", paf_cigar);
-            println!("\t         CIGAR from tracepoints: {}", cigar_from_tracepoints);
-            println!("\tCIGAR from variable_tracepoints: {}", cigar_from_variable_tracepoints);
-            println!("\t             CIGAR score from realign: {}", score_from_realign);
-            println!("\t                 CIGAR score from PAF: {}", score_from_paf);
-            println!("\t         CIGAR score from tracepoints: {}", score_from_tracepoints);
-            println!("\tCIGAR score from variable tracepoints: {}", score_from_variable_tracepoints);
-            println!("\t              cigar stats from realign: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
-                realign_matches, realign_mismatches, realign_insertions, realign_inserted_bp, realign_deletions, realign_deleted_bp, realign_gap_compressed_id, realign_block_id);
-            println!("\t                  cigar stats from PAF: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
-                matches, mismatches, insertions, inserted_bp, deletions, deleted_bp, paf_gap_compressed_id, paf_block_id);
-            println!("\t cigar stats from          tracepoints: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
-                tracepoints_matches, tracepoints_mismatches, tracepoints_insertions, tracepoints_inserted_bp, tracepoints_deletions, tracepoints_deleted_bp, tracepoints_gap_compressed_id, tracepoints_block_id);
-            println!("\t cigar stats from variable_tracepoints: matches: {}, mismatches: {}, insertions: {}, inserted_bp: {}, deletions: {}, deleted_bp: {}, gap_compressed_id: {:.12}, block_id: {:.12}",
-                variable_tracepoints_matches, variable_tracepoints_mismatches, variable_tracepoints_insertions, variable_tracepoints_inserted_bp, variable_tracepoints_deletions, variable_tracepoints_deleted_bp, variable_tracepoints_gap_compressed_id, variable_tracepoints_block_id);
-            println!("\t         tracepoints: {:?}", tracepoints);
-            println!("\tvariable_tracepoints: {:?}", variable_tracepoints);
-            println!("\t                 bounds CIGAR from PAF: {:?}", get_cigar_diagonal_bounds(&paf_cigar));
-            println!("\t         bounds CIGAR from tracepoints: {:?}", get_cigar_diagonal_bounds(&cigar_from_tracepoints));
-            println!("\tbounds CIGAR from variable_tracepoints: {:?}", get_cigar_diagonal_bounds(&cigar_from_variable_tracepoints));
-
-            let (deviation, d_min, d_max, max_gap) = compute_deviation(&cigar_from_tracepoints);
-            println!("\t                 deviation CIGAR from PAF: {:?}", compute_deviation(&paf_cigar));
-            println!("\t         deviation CIGAR from tracepoints: {:?}", (deviation, d_min, d_max, max_gap));
-            println!("\tdeviation CIGAR from variable_tracepoints: {:?}", compute_deviation(&cigar_from_variable_tracepoints));
-            // println!("=> Try using --wfa-heuristic=banded-static --wfa-heuristic-parameters=-{},{}\n", std::cmp::max(max_gap, -d_min), std::cmp::max(max_gap, d_max));
-        }
+        println!("Query: {}:{}-{} | FastGA Score: {} | Original Score: {}", 
+         query_name, query_start, query_end, fastga_score, original_score);
     });
 }
 
@@ -815,6 +856,59 @@ fn compute_alignment_score_from_cigar(
 
     score
 }
+
+#[cfg(debug_assertions)]
+fn compute_edit_distance_alignment_score_from_cigar(
+    cigar_string: &str
+) -> Result<i32, String> {
+    let mut score = 0i32;
+    let mut i = 0;
+    let chars: Vec<char> = cigar_string.chars().collect();
+    
+    while i < chars.len() {
+        // Parse the length (number before the operation)
+        let mut length_str = String::new();
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            length_str.push(chars[i]);
+            i += 1;
+        }
+        
+        // Check if we have a valid length
+        if length_str.is_empty() {
+            return Err(format!("Invalid CIGAR format: expected length before operation at position {}", i));
+        }
+        
+        let length: u32 = length_str.parse()
+            .map_err(|_| format!("Invalid length in CIGAR: '{}'", length_str))?;
+        
+        // Parse the operation
+        if i >= chars.len() {
+            return Err("Invalid CIGAR format: expected operation after length".to_string());
+        }
+        
+        let operation = chars[i];
+        i += 1;
+        
+        // Add to score based on operation
+        match operation {
+            'M' | '=' => {
+                // Match/Exact Match: no penalty
+                // Note: 'M' can be ambiguous (match or mismatch) but in edit distance context,
+                // it's typically treated as a match with 0 penalty
+            }
+            'X' | 'D' | 'I' => {
+                // Mismatch, Deletion, Insertion: +length penalty
+                score += length as i32;
+            }
+            _ => {
+                return Err(format!("Unknown CIGAR operation: '{}'", operation));
+            }
+        }
+    }
+    
+    Ok(score)
+}
+
 /// Initialize logger based on verbosity
 fn setup_logger(verbosity: u8) {
     env_logger::Builder::new()
