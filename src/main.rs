@@ -864,6 +864,22 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
         let aend: i64 = fields[3].parse().unwrap_or(0);
         let bend: i64 = fields[8].parse().unwrap_or(0);
 
+	// Extract query_start and target_start from PAF fields
+        let query_start: usize = fields[2].parse().unwrap_or_else(|_| {
+            error!(
+                "{}",
+                message_with_truncate_paf_file("Invalid query_start in PAF line", line)
+            );
+            std::process::exit(1);
+        });
+        let target_start: usize = fields[7].parse().unwrap_or_else(|_| {
+            error!(
+                "{}",
+                message_with_truncate_paf_file("Invalid target_start in PAF line", line)
+            );
+            std::process::exit(1);
+        });
+
         // Convert CIGAR based on options and add type prefix
         let tracepoints_str = if mixed {
             // Use mixed representation
@@ -879,8 +895,8 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
             // format_tracepoints(&tp)
             // Use cigar2tp for standard tracepoints
             let mut c = CigarPosition {
-                apos: 0,
-                bpos: 0,
+                apos: query_start as i64,
+                bpos: target_start as i64,
                 cptr: 0,
                 len: 0,
             };
@@ -1328,3 +1344,28 @@ fn reverse_complement(seq: &[u8]) -> Vec<u8> {
 
 //     (query_end, query_len, target_end, target_len)
 // }
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_alignment_score_from_cigar() {
+        // Test parameters (using default penalties: 5,8,2,24,1)
+        let mismatch = 1;
+        let gap_open1 = 1;
+        let gap_ext1 = -1;
+        let gap_open2 = -1;
+        let gap_ext2 = -1;
+
+        // Test 1: Perfect match - should have score 0
+        let cigar1 = "29=1I1=1X1D12=1X5=1X35=1X5=1X1=1X6=1X8=1X1=1D1=1X1=1I6=1X17=1X17=1X5=1X4=1X3=1X5=1X2=1X14=1X2=1X4=1X3=1X1D1=1I8=2X2=1X2=1X14=1X2=1X2=1X2=1X5=1X5=1X5=1X2=1X19=1X2=2D1=1D6=1X1=1X3=1X1=1X2D2=1D2=2X6=1X5=1X8=1X2=1X33=1D2=1X4=2D3=1X4=2D1=2D2=1D3=1D2=1D6=1X4=1I5=1D3=1X1=1X3=1X2=1X1=1I6=";
+        let score1 = compute_alignment_score_from_cigar(cigar1, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+	let fastga_cigar = "29=1I1=1X1D12=1X5=1X35=1X5=1X1=1X6=1X8=1I2=1X1=1X1D6=1X17=1X17=1X5=1X4=1X3=1X5=1X2=1X14=1X2=1X4=1X3=1I1=1X1D8=2X2=1X2=1X14=1X2=1X2=1X2=1X5=1X5=1X5=1X2=1X19=1X2=2X2=1X8=1X1=2X2=1X1=6D1X6=1X5=1X8=1X2=1X33=1D2=1X4=9D6=1X7=1X7=1X4=1I5=1D3=1X1=1X3=1X2=1X1=1I6=";
+	let fastga_score = compute_alignment_score_from_cigar(fastga_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+	let cigzip_cigar = "29=3X12=1X5=1X35=1X5=1I1=1I1X2=2I1D1=2D1X1=1D7=1I2=1X1=1D1X6=1X17=1X17=1X5=1X4=1X3=1X5=1X2=1X13=4I1=1D2=3D2=1X3=3X8=2X2=1X2=1X14=1X2=1X2=1X2=1X5=1X5=1X5=1X2=1X19=1X2=1I1=3I1D2=1D1=1D1=1D4=1X1=2X2=2D2=1D1X1=1X4=1D1=1D1=1D4=1X8=1X2=1X33=1D2=1X4=2D3=1X4=1X1=1D1=1D2=1X1=2X1=4D1=1D3=1X4=1I5=1D3=1X1=1X3=1X2=1X1=1I6=";
+	let cigzip_score = compute_alignment_score_from_cigar(cigzip_cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2);
+        // assert_eq!(score1, 0, "Perfect match should have score 0");
+	println!("edlib Score: {}", score1);
+	println!("fastga Score: {}", fastga_score);
+	println!("cigzip Score: {}", cigzip_score);
+    }
+}

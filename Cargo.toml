@@ -8,10 +8,10 @@ clap = { version = "4.5.40", features = ["derive"] }
 rust-htslib = { version = "0.46.0", default-features = false } # Don't update it, see https://github.com/rust-bio/rust-htslib/issues/434
 flate2 = "1.1.2"
 
-lib_wfa2 = { path = "/Users/hasitha/Documents/biology/lib_wfa2"}
+lib_wfa2 = { path = "/home/hasitha/data/projects/lib_wfa2"}
 #lib_wfa2 = { git = "https://github.com/AndreaGuarracino/lib_wfa2"}
 
-lib_tracepoints = { path = "/Users/hasitha/Documents/biology/lib_tracepoints"}
+lib_tracepoints = { path = "/home/hasitha/data/projects/lib_tracepoints"}
 #lib_tracepoints = { git = "https://github.com/AndreaGuarracino/lib_tracepoints"}
 
 log = "0.4.27"
