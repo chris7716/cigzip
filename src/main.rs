@@ -677,10 +677,35 @@ fn process_debug_chunk(
         //     println!("\tdeviation CIGAR from variable_tracepoints: {:?}", compute_deviation(&cigar_from_variable_tracepoints));
         //     // println!("=> Try using --wfa-heuristic=banded-static --wfa-heuristic-parameters=-{},{}\n", std::cmp::max(max_gap, -d_min), std::cmp::max(max_gap, d_max));
         // }
+        let mut c = CigarPosition {
+            apos: query_start as i64,
+            bpos: target_start as i64,
+            cptr: 0,
+            len: 0,
+        };
+        let mut bundle = TPBundle {
+            diff: 0,
+            tlen: 0,
+            trace: Vec::new(),
+        };
+        lib_tracepoints::cigar2tp(&mut c, paf_cigar, aend, bend, 100 as i64, &mut bundle);
+
+        // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
+        let mut tp_vec = Vec::new();
+        let trace = &bundle.trace;
+        let mut i = 0;
+        while i + 1 < trace.len() {
+            tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
+            i += 2;
+        }
         let original_score = compute_edit_distance_alignment_score_from_cigar(&paf_cigar).unwrap_or(0);
 
+        format_tracepoints(&tp_vec)
         println!("Query: {}:{}-{} | Edit Distance Score: {}", 
          query_name, query_start, query_end, original_score);
+        println!("Target chunk: {}", String::from_utf8_lossy(&target_seq));
+        println!("Query chunk: {}", String::from_utf8_lossy(&query_seq));
+        println!("Tracepoints: {:?}", tp_vec);
     });
 }
 
