@@ -1015,16 +1015,13 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
         // Convert CIGAR based on options and add type prefix
         let tracepoints_str = if mixed {
             // Use mixed representation
-            let tp = cigar_to_mixed_tracepoints(cigar, max_diff);
+            let tp = cigar_to_mixed_tracepoints(&cigar, max_diff);  // Add & here
             format_mixed_tracepoints(&tp)
         } else if variable {
             // Use variable tracepoints (placeholder implementation)
-            let tp = cigar_to_variable_tracepoints(cigar, max_diff);
+            let tp = cigar_to_variable_tracepoints(&cigar, max_diff);  // Add & here
             format_variable_tracepoints(&tp)
         } else {
-            // Use standard tracepoints
-            // let tp = cigar_to_tracepoints(cigar, max_diff);
-            // format_tracepoints(&tp)
             // Use cigar2tp for standard tracepoints
             let mut c = CigarPosition {
                 apos: query_start as i64,
@@ -1037,7 +1034,7 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
                 tlen: 0,
                 trace: Vec::new(),
             };
-            lib_tracepoints::cigar2tp(&mut c, cigar, aend, bend, 100 as i64, &mut bundle);
+            lib_tracepoints::cigar2tp(&mut c, &cigar, aend, bend, 100 as i64, &mut bundle);  // Add & here
 
             // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
             let mut tp_vec = Vec::new();
@@ -1198,7 +1195,7 @@ fn process_decompress_chunk(
             };
 
         // Use specified tracepoint type
-        let cigar = match tp_type {
+        let reconstructed_cigar = match tp_type {
             TracepointType::Mixed => {
                 // Mixed representation
                 let mixed_tracepoints = parse_mixed_tracepoints(tracepoints_str);
