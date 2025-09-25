@@ -1178,7 +1178,37 @@ fn process_decompress_chunk(
         };
 
         // Fetch target sequence from target FASTA
-        let target_seq =
+        // let target_seq =
+        //     match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
+        //         Ok(seq) => {
+        //             let mut seq_vec = seq.to_vec();
+        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+        //             seq_vec
+        //                 .iter_mut()
+        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
+        //             seq_vec
+        //         }
+        //         Err(e) => {
+        //             error!("Failed to fetch target sequence: {}", e);
+        //             std::process::exit(1);
+        //         }
+        //     };
+        // Fetch target sequence from target FASTA
+        let target_seq = if strand == "-" {
+            match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
+                Ok(seq) => {
+                    let mut rc = reverse_complement(&seq.to_vec());
+                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+                    rc.iter_mut()
+                        .for_each(|byte| *byte = byte.to_ascii_uppercase());
+                    rc
+                }
+                Err(e) => {
+                    error!("Failed to fetch target sequence: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        } else {
             match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
                 Ok(seq) => {
                     let mut seq_vec = seq.to_vec();
@@ -1192,7 +1222,8 @@ fn process_decompress_chunk(
                     error!("Failed to fetch target sequence: {}", e);
                     std::process::exit(1);
                 }
-            };
+            }
+        };
 
         // Use specified tracepoint type
         let reconstructed_cigar = match tp_type {
