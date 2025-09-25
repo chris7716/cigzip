@@ -700,7 +700,7 @@ fn process_debug_chunk(
         }
         let original_score = compute_edit_distance_alignment_score_from_cigar(&paf_cigar).unwrap_or(0);
 
-        format_tracepoints(&tp_vec)
+        format_tracepoints(&tp_vec);
         println!("Query: {}:{}-{} | Edit Distance Score: {}", 
          query_name, query_start, query_end, original_score);
         println!("Target chunk: {}", String::from_utf8_lossy(&target_seq));
@@ -921,6 +921,45 @@ fn get_paf_reader(paf: &str) -> io::Result<Box<dyn BufRead>> {
     }
 }
 
+/// Reverse a CIGAR string by reversing the order of operations
+/// This is used when the alignment is on the negative strand
+fn reverse_cigar(cigar: &str) -> String {
+    // Parse CIGAR into operations
+    let operations = parse_cigar_to_operations(cigar);
+    
+    // Reverse the order of operations
+    let reversed_ops: Vec<_> = operations.into_iter().rev().collect();
+    
+    // Convert back to CIGAR string
+    operations_to_cigar_string(&reversed_ops)
+}
+
+/// Helper function to parse CIGAR string into (length, operation) pairs
+fn parse_cigar_to_operations(cigar: &str) -> Vec<(u32, char)> {
+    let mut operations = Vec::new();
+    let mut num_buffer = String::new();
+    
+    for c in cigar.chars() {
+        if c.is_ascii_digit() {
+            num_buffer.push(c);
+        } else {
+            let length = num_buffer.parse::<u32>().unwrap_or(1);
+            operations.push((length, c));
+            num_buffer.clear();
+        }
+    }
+    
+    operations
+}
+
+/// Helper function to convert operations back to CIGAR string
+fn operations_to_cigar_string(operations: &[(u32, char)]) -> String {
+    operations
+        .iter()
+        .map(|(len, op)| format!("{}{}", len, op))
+        .collect::<String>()
+}
+
 /// Process a chunk of lines in parallel for compression
 fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_diff: usize) {
     lines.par_iter().for_each(|line| {
@@ -940,7 +979,18 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
             );
             std::process::exit(1);
         };
-        let cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
+        // let cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
+        let raw_cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
+
+        // Get strand information (5th field, 0-indexed is field[4])
+        let strand = fields[4];
+        
+        // Process CIGAR based on strand - reverse if negative strand
+        let cigar = if strand == "-" {
+            reverse_cigar(raw_cigar)
+        } else {
+            raw_cigar.to_string()
+        };
 
         // Extract aend and bend from PAF fields
         let aend: i64 = fields[3].parse().unwrap_or(0);
@@ -1083,34 +1133,50 @@ fn process_decompress_chunk(
         });
 
         // Fetch query sequence from query FASTA
-        let query_seq = if strand == "+" {
-            match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
-                Ok(seq) => {
-                    let mut seq_vec = seq.to_vec();
-                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-                    seq_vec
-                        .iter_mut()
-                        .for_each(|byte| *byte = byte.to_ascii_uppercase());
-                    seq_vec
-                }
-                Err(e) => {
-                    error!("Failed to fetch query sequence: {}", e);
-                    std::process::exit(1);
-                }
+        // let query_seq = if strand == "+" {
+        //     match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
+        //         Ok(seq) => {
+        //             let mut seq_vec = seq.to_vec();
+        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+        //             seq_vec
+        //                 .iter_mut()
+        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
+        //             seq_vec
+        //         }
+        //         Err(e) => {
+        //             error!("Failed to fetch query sequence: {}", e);
+        //             std::process::exit(1);
+        //         }
+        //     }
+        // } else {
+        //     match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
+        //         Ok(seq) => {
+        //             let mut rc = reverse_complement(&seq.to_vec());
+        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+        //             rc.iter_mut()
+        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
+        //             rc
+        //         }
+        //         Err(e) => {
+        //             error!("Failed to fetch query sequence: {}", e);
+        //             std::process::exit(1);
+        //         }
+        //     }
+        // };
+
+        // Fetch query sequence from query FASTA (always use forward strand)
+        let query_seq = match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
+            Ok(seq) => {
+                let mut seq_vec = seq.to_vec();
+                unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+                seq_vec
+                    .iter_mut()
+                    .for_each(|byte| *byte = byte.to_ascii_uppercase());
+                seq_vec
             }
-        } else {
-            match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
-                Ok(seq) => {
-                    let mut rc = reverse_complement(&seq.to_vec());
-                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-                    rc.iter_mut()
-                        .for_each(|byte| *byte = byte.to_ascii_uppercase());
-                    rc
-                }
-                Err(e) => {
-                    error!("Failed to fetch query sequence: {}", e);
-                    std::process::exit(1);
-                }
+            Err(e) => {
+                error!("Failed to fetch query sequence: {}", e);
+                std::process::exit(1);
             }
         };
 
@@ -1174,13 +1240,21 @@ fn process_decompress_chunk(
                     &target_seq,
                     0,
                     0,
+                    query_start,
                     (0, 1, 1),
                 )
             }
         };
 
+        // If the original alignment was on negative strand, reverse the reconstructed CIGAR back
+        let final_cigar = if strand == "-" {
+            reverse_cigar(&reconstructed_cigar)
+        } else {
+            reconstructed_cigar
+        };
+
         // Print the original line, replacing the tracepoints tag with the CIGAR string
-        let new_line = line.replace(tp_field, &format!("cg:Z:{}", cigar));
+        let new_line = line.replace(tp_field, &format!("cg:Z:{}", final_cigar));
         println!("{}", new_line);
     });
 }
