@@ -979,53 +979,57 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
             );
             std::process::exit(1);
         };
-        // let cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
-        let raw_cigar = &cg_field[5..]; // Direct slice instead of strip_prefix("cg:Z:")
+        let raw_cigar = &cg_field[5..];
 
-        // Get strand information (5th field, 0-indexed is field[4])
-        let strand = fields[4];
-        
-        // Process CIGAR based on strand - reverse if negative strand
-        let cigar = if strand == "-" {
-            reverse_cigar(raw_cigar)
-        } else {
-            raw_cigar.to_string()
-        };
-
-        // Extract aend and bend from PAF fields
-        let aend: i64 = fields[3].parse().unwrap_or(0);
-        let bend: i64 = fields[8].parse().unwrap_or(0);
-
-	// Extract query_start and target_start from PAF fields
+        // Parse PAF fields for coordinate transformation
         let query_start: usize = fields[2].parse().unwrap_or_else(|_| {
-            error!(
-                "{}",
-                message_with_truncate_paf_file("Invalid query_start in PAF line", line)
-            );
+            error!("Invalid query_start in PAF line");
             std::process::exit(1);
         });
-        let target_start: usize = fields[7].parse().unwrap_or_else(|_| {
-            error!(
-                "{}",
-                message_with_truncate_paf_file("Invalid target_start in PAF line", line)
-            );
+        let query_end: usize = fields[3].parse().unwrap_or_else(|_| {
+            error!("Invalid query_end in PAF line");
             std::process::exit(1);
         });
+        let strand = fields[4];
+        let target_len: usize = fields[6].parse().unwrap_or_else(|_| {
+            error!("Invalid target_len in PAF line");
+            std::process::exit(1);
+        });
+        let paf_target_start: usize = fields[7].parse().unwrap_or_else(|_| {
+            error!("Invalid target_start in PAF line");
+            std::process::exit(1);
+        });
+        let paf_target_end: usize = fields[8].parse().unwrap_or_else(|_| {
+            error!("Invalid target_end in PAF line");
+            std::process::exit(1);
+        });
+
+        // Transform coordinates based on strand (similar to ALNtoPAF.c logic)
+        let (target_start, target_end, cigar) = if strand == "-" {
+            // For reverse complement, transform coordinates and reverse CIGAR
+            let transformed_start = target_len - paf_target_end;
+            let transformed_end = target_len - paf_target_start;
+            let reversed_cigar = reverse_cigar(raw_cigar);
+            (transformed_start, transformed_end, reversed_cigar)
+        } else {
+            // For forward strand, use coordinates as-is
+            (paf_target_start, paf_target_end, raw_cigar.to_string())
+        };
 
         // Convert CIGAR based on options and add type prefix
         let tracepoints_str = if mixed {
             // Use mixed representation
-            let tp = cigar_to_mixed_tracepoints(&cigar, max_diff);  // Add & here
+            let tp = cigar_to_mixed_tracepoints(&cigar, max_diff);
             format_mixed_tracepoints(&tp)
         } else if variable {
-            // Use variable tracepoints (placeholder implementation)
-            let tp = cigar_to_variable_tracepoints(&cigar, max_diff);  // Add & here
+            // Use variable tracepoints
+            let tp = cigar_to_variable_tracepoints(&cigar, max_diff);
             format_variable_tracepoints(&tp)
         } else {
             // Use cigar2tp for standard tracepoints
             let mut c = CigarPosition {
                 apos: query_start as i64,
-                bpos: target_start as i64,
+                bpos: target_start as i64,  // Use transformed coordinate
                 cptr: 0,
                 len: 0,
             };
@@ -1034,9 +1038,16 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
                 tlen: 0,
                 trace: Vec::new(),
             };
-            lib_tracepoints::cigar2tp(&mut c, &cigar, aend, bend, 100 as i64, &mut bundle);  // Add & here
+            lib_tracepoints::cigar2tp(
+                &mut c, 
+                &cigar, 
+                query_end as i64, 
+                target_end as i64,  // Use transformed coordinate
+                100 as i64, 
+                &mut bundle
+            );
 
-            // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
+            // Convert bundle.trace to Vec<(usize, usize)>
             let mut tp_vec = Vec::new();
             let trace = &bundle.trace;
             let mut i = 0;
@@ -1049,7 +1060,7 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
 
         // Print the result
         let new_line = line.replace(cg_field, &format!("tp:Z:{}", tracepoints_str));
-        println!("{}", new_line); // It is thread-safe by default
+        println!("{}", new_line);
     });
 }
 
