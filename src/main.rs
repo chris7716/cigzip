@@ -1093,7 +1093,7 @@ fn process_decompress_chunk(
             );
             std::process::exit(1);
         };
-        let tracepoints_str = &tp_field[5..]; // Direct slice instead of strip_prefix("tp:Z:")
+        let tracepoints_str = &tp_field[5..];
 
         // Parse mandatory PAF fields
         let query_name = fields[0];
@@ -1113,15 +1113,21 @@ fn process_decompress_chunk(
         });
         let strand = fields[4];
         let target_name = fields[5];
-        //let target_len: usize = fields[6].parse()?;
-        let target_start: usize = fields[7].parse().unwrap_or_else(|_| {
+        let target_len: usize = fields[6].parse().unwrap_or_else(|_| {
+            error!(
+                "{}",
+                message_with_truncate_paf_file("Invalid target_len in PAF line", line)
+            );
+            std::process::exit(1);
+        });
+        let paf_target_start: usize = fields[7].parse().unwrap_or_else(|_| {
             error!(
                 "{}",
                 message_with_truncate_paf_file("Invalid target_start in PAF line", line)
             );
             std::process::exit(1);
         });
-        let target_end: usize = fields[8].parse().unwrap_or_else(|_| {
+        let paf_target_end: usize = fields[8].parse().unwrap_or_else(|_| {
             error!(
                 "{}",
                 message_with_truncate_paf_file("Invalid target_end in PAF line", line)
@@ -1129,7 +1135,7 @@ fn process_decompress_chunk(
             std::process::exit(1);
         });
 
-        // Create thread-local FASTA readers for query and target
+        // Create thread-local FASTA readers
         let query_fasta_reader = FastaReader::from_path(query_fasta_path).unwrap_or_else(|e| {
             error!("Failed to create query FASTA reader: {}", e);
             std::process::exit(1);
@@ -1140,43 +1146,11 @@ fn process_decompress_chunk(
             std::process::exit(1);
         });
 
-        // Fetch query sequence from query FASTA
-        // let query_seq = if strand == "+" {
-        //     match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
-        //         Ok(seq) => {
-        //             let mut seq_vec = seq.to_vec();
-        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-        //             seq_vec
-        //                 .iter_mut()
-        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
-        //             seq_vec
-        //         }
-        //         Err(e) => {
-        //             error!("Failed to fetch query sequence: {}", e);
-        //             std::process::exit(1);
-        //         }
-        //     }
-        // } else {
-        //     match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
-        //         Ok(seq) => {
-        //             let mut rc = reverse_complement(&seq.to_vec());
-        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-        //             rc.iter_mut()
-        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
-        //             rc
-        //         }
-        //         Err(e) => {
-        //             error!("Failed to fetch query sequence: {}", e);
-        //             std::process::exit(1);
-        //         }
-        //     }
-        // };
-
-        // Fetch query sequence from query FASTA (always use forward strand)
+        // Fetch query sequence (always forward strand for the query)
         let query_seq = match query_fasta_reader.fetch_seq(query_name, query_start, query_end - 1) {
             Ok(seq) => {
                 let mut seq_vec = seq.to_vec();
-                unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+                unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) };
                 seq_vec
                     .iter_mut()
                     .for_each(|byte| *byte = byte.to_ascii_uppercase());
@@ -1188,42 +1162,19 @@ fn process_decompress_chunk(
             }
         };
 
-        // Fetch target sequence from target FASTA
-        // let target_seq =
-        //     match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
-        //         Ok(seq) => {
-        //             let mut seq_vec = seq.to_vec();
-        //             unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-        //             seq_vec
-        //                 .iter_mut()
-        //                 .for_each(|byte| *byte = byte.to_ascii_uppercase());
-        //             seq_vec
-        //         }
-        //         Err(e) => {
-        //             error!("Failed to fetch target sequence: {}", e);
-        //             std::process::exit(1);
-        //         }
-        //     };
-        // Fetch target sequence from target FASTA
-        let target_seq = if strand == "-" {
-            match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
-                Ok(seq) => {
-                    let mut rc = reverse_complement(&seq.to_vec());
-                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
-                    rc.iter_mut()
-                        .for_each(|byte| *byte = byte.to_ascii_uppercase());
-                    rc
-                }
-                Err(e) => {
-                    error!("Failed to fetch target sequence: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        } else {
-            match target_fasta_reader.fetch_seq(target_name, target_start, target_end - 1) {
+        // Calculate target coordinates and fetch target sequence based on strand
+        // This mirrors the logic in ALNtoPAF.c lines 234-240
+        let (target_seq, target_coord_start, target_coord_end) = if strand == "-" {
+            // For reverse complement alignments:
+            // 1. Transform coordinates (similar to ALNtoPAF.c bmin/bmax calculation)
+            let coord_start = target_len - paf_target_end;
+            let coord_end = target_len - paf_target_start;
+            
+            // 2. Fetch the sequence from the transformed coordinates
+            let seq = match target_fasta_reader.fetch_seq(target_name, coord_start, coord_end - 1) {
                 Ok(seq) => {
                     let mut seq_vec = seq.to_vec();
-                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) }; // Free up memory (bug https://github.com/rust-bio/rust-htslib/issues/401#issuecomment-1704290171)
+                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) };
                     seq_vec
                         .iter_mut()
                         .for_each(|byte| *byte = byte.to_ascii_uppercase());
@@ -1233,25 +1184,46 @@ fn process_decompress_chunk(
                     error!("Failed to fetch target sequence: {}", e);
                     std::process::exit(1);
                 }
-            }
+            };
+            
+            // 3. Reverse complement the sequence (similar to Complement_Seq in ALNtoPAF.c)
+            let rc_seq = reverse_complement(&seq);
+            
+            (rc_seq, coord_start, coord_end)
+        } else {
+            // For forward strand, use coordinates as-is
+            let seq = match target_fasta_reader.fetch_seq(target_name, paf_target_start, paf_target_end - 1) {
+                Ok(seq) => {
+                    let mut seq_vec = seq.to_vec();
+                    unsafe { libc::free(seq.as_ptr() as *mut std::ffi::c_void) };
+                    seq_vec
+                        .iter_mut()
+                        .for_each(|byte| *byte = byte.to_ascii_uppercase());
+                    seq_vec
+                }
+                Err(e) => {
+                    error!("Failed to fetch target sequence: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            
+            (seq, paf_target_start, paf_target_end)
         };
 
-        // Use specified tracepoint type
+        // Convert tracepoints back to CIGAR using the properly oriented sequences
         let reconstructed_cigar = match tp_type {
             TracepointType::Mixed => {
-                // Mixed representation
                 let mixed_tracepoints = parse_mixed_tracepoints(tracepoints_str);
                 mixed_tracepoints_to_cigar(
                     &mixed_tracepoints,
                     &query_seq,
                     &target_seq,
-                    0,
+                    0,  // Use 0-based coordinates since sequences are already extracted
                     0,
                     (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2),
                 )
             }
             TracepointType::Variable => {
-                // Variable tracepoints representation
                 let variable_tracepoints = parse_variable_tracepoints(tracepoints_str);
                 variable_tracepoints_to_cigar(
                     &variable_tracepoints,
@@ -1263,16 +1235,7 @@ fn process_decompress_chunk(
                 )
             }
             TracepointType::Standard => {
-                // Standard tracepoints
                 let tracepoints = parse_tracepoints(tracepoints_str);
-                // tracepoints_to_cigar(
-                //     &tracepoints,
-                //     &query_seq,
-                //     &target_seq,
-                //     0,
-                //     0,
-                //     (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2),
-                // );
                 tracepoints_to_fastga_cigar(
                     &tracepoints,
                     &query_seq,
@@ -1285,14 +1248,15 @@ fn process_decompress_chunk(
             }
         };
 
-        // If the original alignment was on negative strand, reverse the reconstructed CIGAR back
+        // For reverse complement alignments, reverse the CIGAR back to match PAF format
+        // This mirrors the CIGAR reversal logic in ALNtoPAF.c lines 415-422
         let final_cigar = if strand == "-" {
             reverse_cigar(&reconstructed_cigar)
         } else {
             reconstructed_cigar
         };
 
-        // Print the original line, replacing the tracepoints tag with the CIGAR string
+        // Replace tracepoints with CIGAR
         let new_line = line.replace(tp_field, &format!("cg:Z:{}", final_cigar));
         println!("{}", new_line);
     });
