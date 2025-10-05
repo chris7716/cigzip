@@ -295,24 +295,82 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             let (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2) = parse_penalties(&penalties)?;
             
-            if let (Some(paf1), Some(paf2), Some(query_fasta), Some(target_fasta)) =
-                (paf1, paf2, query_fasta, target_fasta)
-            {
-                info!("Comparing two PAF files: {} vs {}", paf1, paf2);
-                process_two_paf_files(
-                    &paf1, &paf2, &query_fasta, &target_fasta,
-                    mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
-                    max_diff, threads
-                )?;
-            } else if let (Some(paf1), Some(query_fasta), Some(target_fasta)) =
-                (paf1, query_fasta, target_fasta)
-            {
-                // Single PAF file mode (existing functionality)
-                info!("Single PAF file debug mode");
-                // ... existing single PAF processing code ...
-            } else {
-                info!("Running default example");
-                // ... existing default example code ...
+            match (&paf1, &paf2, &query_fasta, &target_fasta) {
+                (Some(paf1_path), Some(paf2_path), Some(query_fasta_path), Some(target_fasta_path)) => {
+                    // Two PAF files comparison mode
+                    info!("Comparing two PAF files: {} vs {}", paf1_path, paf2_path);
+                    process_two_paf_files(
+                        paf1_path, paf2_path, query_fasta_path, target_fasta_path,
+                        mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
+                        max_diff, threads
+                    )?;
+                }
+                (Some(paf1_path), None, Some(query_fasta_path), Some(target_fasta_path)) => {
+                    // Single PAF file mode
+                    info!("Single PAF file debug mode");
+                    
+                    // Set the thread pool size
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(threads)
+                        .build_global()?;
+
+                    // Open the PAF file
+                    let paf_reader = get_paf_reader(paf1_path)?;
+
+                    // Process in chunks
+                    let chunk_size = std::cmp::max(threads * 100, 1000);
+                    let mut lines = Vec::with_capacity(chunk_size);
+                    for line_result in paf_reader.lines() {
+                        match line_result {
+                            Ok(line) => {
+                                if line.trim().is_empty() || line.starts_with('#') {
+                                    continue;
+                                }
+
+                                lines.push(line);
+
+                                if lines.len() >= chunk_size {
+                                    // Process current chunk in parallel
+                                    process_debug_chunk(
+                                        &lines,
+                                        query_fasta_path,
+                                        target_fasta_path,
+                                        mismatch,
+                                        gap_open1,
+                                        gap_ext1,
+                                        gap_open2,
+                                        gap_ext2,
+                                        max_diff,
+                                    );
+                                    lines.clear();
+                                }
+                            }
+                            Err(e) => return Err(e.into()),
+                        }
+                    }
+
+                    // Process remaining lines
+                    if !lines.is_empty() {
+                        process_debug_chunk(
+                            &lines,
+                            query_fasta_path,
+                            target_fasta_path,
+                            mismatch,
+                            gap_open1,
+                            gap_ext1,
+                            gap_open2,
+                            gap_ext2,
+                            max_diff,
+                        );
+                    }
+                }
+                _ => {
+                    info!("Running default example");
+                    // Default behavior when not enough arguments are provided
+                    println!("Debug mode requires:");
+                    println!("  For single PAF: --paf1 <file> -q <query.fa> -t <target.fa>");
+                    println!("  For comparison: --paf1 <file1> --paf2 <file2> -q <query.fa> -t <target.fa>");
+                }
             }
         }
     }
