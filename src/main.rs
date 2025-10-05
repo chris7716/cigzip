@@ -684,7 +684,7 @@ fn process_debug_chunk_compare(
         let edit_score2 = compute_edit_distance_alignment_score_from_cigar(&record2.cigar).unwrap_or(0);
         
         // Compare scores and report differences
-        if score1 != score2 || edit_score1 != edit_score2 {
+        if edit_score1 > edit_score2 {
             println!("SCORE DIFFERENCE FOUND:");
             println!("  Alignment: {}:{}-{} {} {}:{}-{}", 
                      record1.query_name, record1.query_start, record1.query_end,
