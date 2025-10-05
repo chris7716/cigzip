@@ -688,24 +688,24 @@ fn process_debug_chunk(
             tlen: 0,
             trace: Vec::new(),
         };
-        lib_tracepoints::cigar2tp(&mut c, paf_cigar, aend, bend, 100 as i64, &mut bundle);
+        // lib_tracepoints::cigar2tp(&mut c, paf_cigar, aend, bend, 100 as i64, &mut bundle);
 
         // Convert bundle.trace (Vec<i64>) to Vec<(usize, usize)>
-        let mut tp_vec = Vec::new();
-        let trace = &bundle.trace;
-        let mut i = 0;
-        while i + 1 < trace.len() {
-            tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
-            i += 2;
-        }
+        //let mut tp_vec = Vec::new();
+        //let trace = &bundle.trace;
+        //let mut i = 0;
+        //while i + 1 < trace.len() {
+        //    tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
+        //    i += 2;
+        //}
         let original_score = compute_edit_distance_alignment_score_from_cigar(&paf_cigar).unwrap_or(0);
 
-        format_tracepoints(&tp_vec);
+        //format_tracepoints(&tp_vec);
         println!("Query: {}:{}-{} | Edit Distance Score: {}", 
          query_name, query_start, query_end, original_score);
-        println!("Target chunk: {}", String::from_utf8_lossy(&target_seq));
-        println!("Query chunk: {}", String::from_utf8_lossy(&query_seq));
-        println!("Tracepoints: {:?}", tp_vec);
+        //println!("Target chunk: {}", String::from_utf8_lossy(&target_seq));
+        //println!("Query chunk: {}", String::from_utf8_lossy(&query_seq));
+        // println!("Tracepoints: {:?}", tp_vec);
     });
 }
 
@@ -1167,8 +1167,8 @@ fn process_decompress_chunk(
         let (target_seq, target_coord_start, target_coord_end) = if strand == "-" {
             // For reverse complement alignments:
             // 1. Transform coordinates (similar to ALNtoPAF.c bmin/bmax calculation)
-            let coord_start = target_len - paf_target_end;
-            let coord_end = target_len - paf_target_start;
+            let coord_start = paf_target_start;
+            let coord_end = paf_target_end;
             
             // 2. Fetch the sequence from the transformed coordinates
             let seq = match target_fasta_reader.fetch_seq(target_name, coord_start, coord_end - 1) {
@@ -1250,7 +1250,7 @@ fn process_decompress_chunk(
 
         // For reverse complement alignments, reverse the CIGAR back to match PAF format
         // This mirrors the CIGAR reversal logic in ALNtoPAF.c lines 415-422
-        let final_cigar = if strand == "-" {
+        let final_cigar = if strand == "--" {
             reverse_cigar(&reconstructed_cigar)
         } else {
             reconstructed_cigar
