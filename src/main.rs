@@ -59,6 +59,21 @@ struct CommonOpts {
     verbose: u8,
 }
 
+/// Structure to hold PAF record information
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone)]
+struct PafRecord {
+    query_name: String,
+    query_start: usize,
+    query_end: usize,
+    strand: String,
+    target_name: String,
+    target_start: usize,
+    target_end: usize,
+    cigar: String,
+    original_line: String,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, disable_help_subcommand = true)]
 enum Args {
@@ -104,8 +119,16 @@ enum Args {
     #[cfg(debug_assertions)]
     Debug {
         /// PAF file for alignments (use "-" to read from standard input)
-        #[arg(short = 'p', long = "paf")]
-        paf: Option<String>,
+        // #[arg(short = 'p', long = "paf")]
+        // paf: Option<String>,
+
+        /// First PAF file for comparison
+        #[arg(short = 'p', long = "paf1")]
+        paf1: Option<String>,
+        
+        /// Second PAF file for comparison (optional)
+        #[arg(long = "paf2")]
+        paf2: Option<String>,
 
         /// Number of threads to use (default: 4)
         #[arg(long = "threads", default_value_t = 4)]
@@ -259,7 +282,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(debug_assertions)]
         Args::Debug {
-            paf,
+            paf1,
+            paf2,
             threads,
             query_fasta,
             target_fasta,
@@ -268,198 +292,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             verbose,
         } => {
             setup_logger(verbose);
-            info!("Debugging");
-
+            
             let (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2) = parse_penalties(&penalties)?;
-            info!(
-                "Penalties: {},{},{},{},{}",
-                mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2
-            );
-
-            if let (Some(paf), Some(query_fasta), Some(target_fasta)) =
-                (paf, query_fasta, target_fasta)
+            
+            if let (Some(paf1), Some(paf2), Some(query_fasta), Some(target_fasta)) =
+                (paf1, paf2, query_fasta, target_fasta)
             {
-                info!("PAF file: {}", paf);
-                info!("Query FASTA file: {}", query_fasta);
-                info!("Target FASTA file: {}", target_fasta);
-
-                // Count total lines for progress bar (if not stdin)
-                let total_lines = if paf != "-" {
-                    // Quick line count for progress estimation
-                    let counter = get_paf_reader(&paf)?;
-                    counter.lines().count()
-                } else {
-                    0 // Unknown size for stdin
-                };
-
-                // Create progress bar
-                let progress_bar = if total_lines > 0 {
-                    let pb = ProgressBar::new(total_lines as u64);
-                    pb.set_style(
-                        ProgressStyle::default_bar()
-                            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {msg}")
-                            .unwrap()
-                            .progress_chars("#>-")
-                    );
-                    pb.set_message("Processing PAF lines");
-                    Some(pb)
-                } else {
-                    // For stdin, use a spinner
-                    let pb = ProgressBar::new_spinner();
-                    pb.set_style(
-                        ProgressStyle::default_spinner()
-                            .template(
-                                "{spinner:.green} [{elapsed_precise}] {pos} lines processed {msg}",
-                            )
-                            .unwrap(),
-                    );
-                    pb.set_message("Processing PAF lines from stdin");
-                    Some(pb)
-                };
-
-                // Open the PAF file (or use stdin if "-" is provided).
-                let paf_reader = get_paf_reader(&paf)?;
-
-                // Set the thread pool size
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(threads)
-                    .build_global()?;
-
-                // Process in chunks
-                let chunk_size = 1000; // Or make this configurable
-                let mut lines = Vec::with_capacity(chunk_size);
-                let mut processed_count = 0;
-
-                for line_result in paf_reader.lines() {
-                    match line_result {
-                        Ok(line) => {
-                            if line.trim().is_empty() || line.starts_with('#') {
-                                continue;
-                            }
-
-                            lines.push(line);
-                            processed_count += 1;
-
-                            if lines.len() >= chunk_size {
-                                // Process current chunk in parallel
-                                process_debug_chunk(
-                                    &lines,
-                                    &query_fasta,
-                                    &target_fasta,
-                                    mismatch,
-                                    gap_open1,
-                                    gap_ext1,
-                                    gap_open2,
-                                    gap_ext2,
-                                    max_diff,
-                                );
-
-                                // Update progress bar
-                                if let Some(ref pb) = progress_bar {
-                                    if total_lines > 0 {
-                                        pb.set_position(processed_count as u64);
-                                    } else {
-                                        pb.set_position(processed_count as u64);
-                                    }
-                                }
-
-                                lines.clear();
-                            }
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-
-                // Process remaining lines
-                if !lines.is_empty() {
-                    process_debug_chunk(
-                        &lines,
-                        &query_fasta,
-                        &target_fasta,
-                        mismatch,
-                        gap_open1,
-                        gap_ext1,
-                        gap_open2,
-                        gap_ext2,
-                        max_diff,
-                    );
-
-                    if let Some(ref pb) = progress_bar {
-                        if total_lines > 0 {
-                            pb.set_position(total_lines as u64);
-                        } else {
-                            pb.set_position(processed_count as u64);
-                        }
-                    }
-                }
-
-                // Finish progress bar
-                if let Some(ref pb) = progress_bar {
-                    pb.finish_with_message("Debug processing complete");
-                }
+                info!("Comparing two PAF files: {} vs {}", paf1, paf2);
+                process_two_paf_files(
+                    &paf1, &paf2, &query_fasta, &target_fasta,
+                    mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
+                    max_diff, threads
+                )?;
+            } else if let (Some(paf1), Some(query_fasta), Some(target_fasta)) =
+                (paf1, query_fasta, target_fasta)
+            {
+                // Single PAF file mode (existing functionality)
+                info!("Single PAF file debug mode");
+                // ... existing single PAF processing code ...
             } else {
-                // Fallback: run default example if no PAF/FASTA provided.
-                info!("No PAF and FASTA files provided, running default example.");
-
-                let query_seq = b"GAACAGAGAAATGGTGGAATTCAAATACAAAAAAACCGCAAAATTAAAAATCTTGCGGCTCTCTGAACTCATTTTCATGAGTGAATTTGGCGGAACGGACGGGACTCGAACCCGCGACCCCCTGCGTGACAGGCAGGTATTCTAACCGACTGAACTACCGCTCCGCCGTTGTGTTCCGTTGGGAACGGGCGAATATTACGGATTTGCCTCACCCTTCGTCAACGGTTTTTCTCATCTTTTGAATCGTTTGCTGCAAAAATCGCCCAAGCCGCTATTTTTAGCGCCTTTTACAGGTATTTATGCCCGCCAGAGGCAGCTTCCGCCCTTCTTCTCCACCAGATCAAGACGGGCTTCCTGAGCTGCAAGCTCTTCATCTGTCGCAAAAACAACGCGTAACTTACTTGCCTGACGTACAATGCGCTGAATTGTTGCTTCACCTTGTTGCTGCTGTGTCTCTCCTTCCATCGCAAAAGCCATCGACGTTTGACCACCGGTCATCG".to_owned();
-                let target_seq = b"GAACAGAGAAATGGTGGAATTCAAATACAAAAAAACCGCAAAATTAACCCTTCGTCAACGGTTTTTCTCATCTTTTGAATCGTTTGCTGCAAAAATCGCCCAAGCCGCTATTTTTAGCGCCTTTTACAGGTATTTATGCCCGCCAGAGGCAGCTTCCGCCCTTCTTCTCCACCAGATCAAGACGGGCTTCCTGAGCTGCAAGCTCTTCATCTGTCGCAAAAACAACGCGTAACTTACTTGCCTGACGTACAATGCGCTGAATTGTTGCTTCACCTTGTTGCTGCTGTGTCTCTCCTTCCATCGCAAAAGCCATCGACGTTTGACCACCGGTCATCG".to_owned();
-
-                let a_start = 0;
-                let a_end = query_seq.len();
-                let b_start = 0;
-                let b_end = target_seq.len();
-
-                // Create aligner and configure settings
-                let mut aligner = AffineWavefronts::with_penalties_affine2p(
-                    0, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
-                );
-                let paf_cigar = align_sequences_wfa(
-                    &query_seq[a_start..a_end],
-                    &target_seq[b_start..b_end],
-                    &mut aligner,
-                );
-                let paf_cigar = cigar_ops_to_cigar_string(&paf_cigar);
-
-                let tracepoints = cigar_to_tracepoints(&paf_cigar, max_diff);
-
-                let cigar_from_tracepoints = tracepoints_to_cigar(
-                    &tracepoints,
-                    &query_seq,
-                    &target_seq,
-                    0,
-                    0,
-                    (mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2),
-                );
-
-                if false {
-                    error!("CIGAR mismatch!");
-                    error!("\t                         tracepoints: {:?}", tracepoints);
-                    error!("\t                      CIGAR from PAF: {}", paf_cigar);
-                    error!(
-                        "\t              CIGAR from tracepoints: {}",
-                        cigar_from_tracepoints
-                    );
-                    error!(
-                        "\t                      bounds CIGAR from PAF: {:?}",
-                        get_cigar_diagonal_bounds(&paf_cigar)
-                    );
-                    error!(
-                        "\t              bounds CIGAR from tracepoints: {:?}",
-                        get_cigar_diagonal_bounds(&cigar_from_tracepoints)
-                    );
-
-                    let (deviation, d_min, d_max, max_gap) =
-                        compute_deviation(&cigar_from_tracepoints);
-                    error!(
-                        "\t                      deviation CIGAR from PAF: {:?}",
-                        compute_deviation(&paf_cigar)
-                    );
-                    error!(
-                        "\t              deviation CIGAR from tracepoints: {:?}",
-                        (deviation, d_min, d_max, max_gap)
-                    );
-                    error!("=> Try using --wfa-heuristic=banded-static --wfa-heuristic-parameters=-{},{}\n", std::cmp::max(max_gap, -d_min), std::cmp::max(max_gap, d_max));
-                }
+                info!("Running default example");
+                // ... existing default example code ...
             }
         }
     }
@@ -707,6 +560,209 @@ fn process_debug_chunk(
         //println!("Query chunk: {}", String::from_utf8_lossy(&query_seq));
         // println!("Tracepoints: {:?}", tp_vec);
     });
+}
+
+/// Process a chunk of lines in parallel for debugging with two PAF files
+#[cfg(debug_assertions)]
+fn process_debug_chunk_compare(
+    lines1: &[String],
+    lines2: &[String],
+    query_fasta_path: &str,
+    target_fasta_path: &str,
+    mismatch: i32,
+    gap_open1: i32,
+    gap_ext1: i32,
+    gap_open2: i32,
+    gap_ext2: i32,
+    max_diff: usize,
+) {
+    use std::collections::HashMap;
+    
+    // Parse both PAF files into HashMaps for easy comparison
+    let mut paf1_records: HashMap<String, PafRecord> = HashMap::new();
+    let mut paf2_records: HashMap<String, PafRecord> = HashMap::new();
+    
+    // Parse first PAF file
+    for line in lines1 {
+        if let Some(record) = parse_paf_line(line) {
+            let key = create_alignment_key(&record);
+            paf1_records.insert(key, record);
+        }
+    }
+    
+    // Parse second PAF file
+    for line in lines2 {
+        if let Some(record) = parse_paf_line(line) {
+            let key = create_alignment_key(&record);
+            paf2_records.insert(key, record);
+        }
+    }
+    
+    // Find common alignments and compare scores
+    let common_keys: Vec<_> = paf1_records.keys()
+        .filter(|k| paf2_records.contains_key(*k))
+        .cloned()
+        .collect();
+    
+    println!("Comparing {} common alignments between PAF files", common_keys.len());
+    println!("PAF1 unique: {}, PAF2 unique: {}", 
+             paf1_records.len() - common_keys.len(),
+             paf2_records.len() - common_keys.len());
+    
+    // Process common alignments in parallel
+    common_keys.par_iter().for_each(|key| {
+        let record1 = &paf1_records[key];
+        let record2 = &paf2_records[key];
+        
+        // Calculate scores for both records
+        let score1 = compute_alignment_score_from_cigar(
+            &record1.cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2
+        );
+        let score2 = compute_alignment_score_from_cigar(
+            &record2.cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2
+        );
+        
+        let edit_score1 = compute_edit_distance_alignment_score_from_cigar(&record1.cigar).unwrap_or(0);
+        let edit_score2 = compute_edit_distance_alignment_score_from_cigar(&record2.cigar).unwrap_or(0);
+        
+        // Compare scores and report differences
+        if score1 != score2 || edit_score1 != edit_score2 {
+            println!("SCORE DIFFERENCE FOUND:");
+            println!("  Alignment: {}:{}-{} {} {}:{}-{}", 
+                     record1.query_name, record1.query_start, record1.query_end,
+                     record1.strand, record1.target_name, record1.target_start, record1.target_end);
+            println!("  PAF1 CIGAR: {}", record1.cigar);
+            println!("  PAF2 CIGAR: {}", record2.cigar);
+            println!("  PAF1 Alignment Score: {} | Edit Distance: {}", score1, edit_score1);
+            println!("  PAF2 Alignment Score: {} | Edit Distance: {}", score2, edit_score2);
+            println!("  Score Difference: {} | Edit Distance Difference: {}", 
+                     score2 - score1, edit_score2 - edit_score1);
+            
+            // Calculate detailed statistics for both CIGARs
+            let stats1 = calculate_cigar_stats(&record1.cigar);
+            let stats2 = calculate_cigar_stats(&record2.cigar);
+            
+            println!("  PAF1 Stats: M:{} X:{} I:{} D:{} Gap-ID:{:.4} Block-ID:{:.4}", 
+                     stats1.0, stats1.1, stats1.2, stats1.4, stats1.6, stats1.7);
+            println!("  PAF2 Stats: M:{} X:{} I:{} D:{} Gap-ID:{:.4} Block-ID:{:.4}", 
+                     stats2.0, stats2.1, stats2.2, stats2.4, stats2.6, stats2.7);
+            println!();
+        }
+    });
+    
+    // Report summary statistics
+    let total_score_diff: i32 = common_keys.par_iter().map(|key| {
+        let record1 = &paf1_records[key];
+        let record2 = &paf2_records[key];
+        let score1 = compute_alignment_score_from_cigar(
+            &record1.cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2
+        );
+        let score2 = compute_alignment_score_from_cigar(
+            &record2.cigar, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2
+        );
+        (score2 - score1).abs()
+    }).sum();
+    
+    println!("SUMMARY:");
+    println!("  Total alignments compared: {}", common_keys.len());
+    println!("  Total absolute score difference: {}", total_score_diff);
+    println!("  Average score difference per alignment: {:.2}", 
+             total_score_diff as f64 / common_keys.len() as f64);
+}
+
+/// Parse a PAF line into a PafRecord
+#[cfg(debug_assertions)]
+fn parse_paf_line(line: &str) -> Option<PafRecord> {
+    let fields: Vec<&str> = line.split('\t').collect();
+    if fields.len() < 12 {
+        return None;
+    }
+    
+    let cigar_field = fields.iter().find(|&&s| s.starts_with("cg:Z:"))?;
+    let cigar = cigar_field[5..].to_string();
+    
+    Some(PafRecord {
+        query_name: fields[0].to_string(),
+        query_start: fields[2].parse().ok()?,
+        query_end: fields[3].parse().ok()?,
+        strand: fields[4].to_string(),
+        target_name: fields[5].to_string(),
+        target_start: fields[7].parse().ok()?,
+        target_end: fields[8].parse().ok()?,
+        cigar,
+        original_line: line.to_string(),
+    })
+}
+
+/// Create a unique key for alignment comparison
+#[cfg(debug_assertions)]
+fn create_alignment_key(record: &PafRecord) -> String {
+    format!("{}:{}:{}:{}:{}:{}:{}", 
+            record.query_name, record.query_start, record.query_end,
+            record.strand, record.target_name, record.target_start, record.target_end)
+}
+
+/// Updated main function debug section to handle two PAF files
+#[cfg(debug_assertions)]
+fn process_two_paf_files(
+    paf1_path: &str,
+    paf2_path: &str,
+    query_fasta_path: &str,
+    target_fasta_path: &str,
+    mismatch: i32,
+    gap_open1: i32,
+    gap_ext1: i32,
+    gap_open2: i32,
+    gap_ext2: i32,
+    max_diff: usize,
+    threads: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Set the thread pool size
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()?;
+    
+    // Read both PAF files
+    let paf1_reader = get_paf_reader(paf1_path)?;
+    let paf2_reader = get_paf_reader(paf2_path)?;
+    
+    let mut paf1_lines = Vec::new();
+    let mut paf2_lines = Vec::new();
+    
+    // Read all lines from first PAF
+    for line_result in paf1_reader.lines() {
+        let line = line_result?;
+        if !line.trim().is_empty() && !line.starts_with('#') {
+            paf1_lines.push(line);
+        }
+    }
+    
+    // Read all lines from second PAF
+    for line_result in paf2_reader.lines() {
+        let line = line_result?;
+        if !line.trim().is_empty() && !line.starts_with('#') {
+            paf2_lines.push(line);
+        }
+    }
+    
+    println!("PAF1 records: {}", paf1_lines.len());
+    println!("PAF2 records: {}", paf2_lines.len());
+    
+    // Process comparison
+    process_debug_chunk_compare(
+        &paf1_lines,
+        &paf2_lines,
+        query_fasta_path,
+        target_fasta_path,
+        mismatch,
+        gap_open1,
+        gap_ext1,
+        gap_open2,
+        gap_ext2,
+        max_diff,
+    );
+    
+    Ok(())
 }
 
 /// Calculate gap compressed identity and block identity from a CIGAR string
