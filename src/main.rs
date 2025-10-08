@@ -354,6 +354,8 @@ fn process_debug_chunk_compare_tracepoints(
     println!("=== STATISTICS ===");
     println!("  Alignments with identical tracepoint counts: {}", identical_tp_count);
     println!("  Alignments with different tracepoint counts: {}", tp_diff_count);
+    println!("  lib_tracepoints tracepoint counts: {}", tp_count1);
+    println!("  fastga tracepoint counts: {}", tp_count2);
     if tp_diff_count > 0 {
         println!("  Absolute tracepoint difference: {}", total_tp_diff);
     }
