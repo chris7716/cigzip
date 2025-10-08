@@ -285,23 +285,23 @@ fn process_debug_chunk_compare_tracepoints(
                      record1.strand, record1.target_name, record1.target_start, record1.target_end);
             
             // Show original data if available
-            if let Some(ref cigar1) = record1.cigar {
-                println!("  PAF1 CIGAR: {}", cigar1);
-            }
-            if let Some(ref tp1) = record1.tracepoints {
-                println!("  PAF1 Tracepoints: {}", tp1);
-            }
+            // if let Some(ref cigar1) = record1.cigar {
+            //     println!("  PAF1 CIGAR: {}", cigar1);
+            // }
+            // if let Some(ref tp1) = record1.tracepoints {
+            //     println!("  PAF1 Tracepoints: {}", tp1);
+            // }
             
-            if let Some(ref cigar2) = record2.cigar {
-                println!("  PAF2 CIGAR: {}", cigar2);
-            }
-            if let Some(ref tp2) = record2.tracepoints {
-                println!("  PAF2 Tracepoints: {}", tp2);
-            }
+            // if let Some(ref cigar2) = record2.cigar {
+            //     println!("  PAF2 CIGAR: {}", cigar2);
+            // }
+            // if let Some(ref tp2) = record2.tracepoints {
+            //     println!("  PAF2 Tracepoints: {}", tp2);
+            // }
             
-            println!("  PAF1 Tracepoint Count: {}", tp_count1);
-            println!("  PAF2 Tracepoint Count: {}", tp_count2);
-            println!("  Difference (PAF2 - PAF1): {}", tp_diff);
+            // println!("  PAF1 Tracepoint Count: {}", tp_count1);
+            // println!("  PAF2 Tracepoint Count: {}", tp_count2);
+            // println!("  Difference (PAF2 - PAF1): {}", tp_diff);
             
             // Calculate compression ratio if we have CIGAR
             if let Some(ref cigar1) = record1.cigar {
@@ -312,8 +312,8 @@ fn process_debug_chunk_compare_tracepoints(
                 } else {
                     0.0
                 };
-                println!("  PAF1 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
-                         cigar_len, tp_len, compression_ratio);
+                // println!("  PAF1 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
+                //          cigar_len, tp_len, compression_ratio);
             }
             
             if let Some(ref cigar2) = record2.cigar {
@@ -324,8 +324,8 @@ fn process_debug_chunk_compare_tracepoints(
                 } else {
                     0.0
                 };
-                println!("  PAF2 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
-                         cigar_len, tp_len, compression_ratio);
+                // println!("  PAF2 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
+                //          cigar_len, tp_len, compression_ratio);
             }
             
             println!();
@@ -355,10 +355,7 @@ fn process_debug_chunk_compare_tracepoints(
     println!("  Alignments with identical tracepoint counts: {}", identical_tp_count);
     println!("  Alignments with different tracepoint counts: {}", tp_diff_count);
     if tp_diff_count > 0 {
-        println!("  Average absolute tracepoint difference: {:.2}", 
-                 total_tp_diff as f64 / tp_diff_count as f64);
-        println!("  Maximum tracepoint difference: {}", max_tp_diff);
-        println!("  Minimum tracepoint difference: {}", min_tp_diff);
+        println!("  Absolute tracepoint difference: {}", total_tp_diff);
     }
     println!("  Percentage with identical counts: {:.2}%", 
              (identical_tp_count as f64 / common_keys.len() as f64) * 100.0);
