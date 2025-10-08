@@ -74,6 +74,296 @@ struct PafRecord {
     original_line: String,
 }
 
+/// Extended PAF record structure that can handle both CIGAR and tracepoints
+#[cfg(debug_assertions)]
+#[derive(Debug, Clone)]
+struct PafRecordWithTracepoints {
+    query_name: String,
+    query_start: usize,
+    query_end: usize,
+    strand: String,
+    target_name: String,
+    target_start: usize,
+    target_end: usize,
+    cigar: Option<String>,
+    tracepoints: Option<String>,
+    tracepoint_count: usize,
+    original_line: String,
+}
+
+/// Parse a PAF line into a PafRecordWithTracepoints (handles both CIGAR and tracepoint PAF files)
+#[cfg(debug_assertions)]
+fn parse_paf_line_with_tracepoints(line: &str) -> Option<PafRecordWithTracepoints> {
+    let fields: Vec<&str> = line.split('\t').collect();
+    if fields.len() < 12 {
+        return None;
+    }
+    
+    // Look for CIGAR field
+    let cigar_field = fields.iter().find(|&&s| s.starts_with("cg:Z:"));
+    let cigar = cigar_field.map(|field| field[5..].to_string());
+    
+    // Look for tracepoints field
+    let tp_field = fields.iter().find(|&&s| s.starts_with("tp:Z:"));
+    let tracepoints = tp_field.map(|field| field[5..].to_string());
+    
+    // Count tracepoints
+    let tracepoint_count = if let Some(ref tp_str) = tracepoints {
+        count_tracepoints(tp_str)
+    } else {
+        0
+    };
+    
+    Some(PafRecordWithTracepoints {
+        query_name: fields[0].to_string(),
+        query_start: fields[2].parse().ok()?,
+        query_end: fields[3].parse().ok()?,
+        strand: fields[4].to_string(),
+        target_name: fields[5].to_string(),
+        target_start: fields[7].parse().ok()?,
+        target_end: fields[8].parse().ok()?,
+        cigar,
+        tracepoints,
+        tracepoint_count,
+        original_line: line.to_string(),
+    })
+}
+
+/// Count the number of tracepoints in a tracepoint string
+#[cfg(debug_assertions)]
+fn count_tracepoints(tp_str: &str) -> usize {
+    if tp_str.is_empty() {
+        return 0;
+    }
+    
+    // Count semicolons and add 1 (since semicolons separate tracepoints)
+    tp_str.matches(';').count() + 1
+}
+
+/// Create a simple alignment key for comparison
+#[cfg(debug_assertions)]
+fn create_alignment_key_simple(record: &PafRecordWithTracepoints) -> String {
+    format!("{}:{}:{}:{}:{}:{}:{}", 
+            record.query_name, record.query_start, record.query_end,
+            record.strand, record.target_name, record.target_start, record.target_end)
+}
+
+/// Updated function to handle tracepoint comparison specifically
+#[cfg(debug_assertions)]
+fn process_two_paf_files_tracepoints(
+    paf1_path: &str,
+    paf2_path: &str,
+    query_fasta_path: &str,
+    target_fasta_path: &str,
+    mismatch: i32,
+    gap_open1: i32,
+    gap_ext1: i32,
+    gap_open2: i32,
+    gap_ext2: i32,
+    max_diff: usize,
+    threads: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Set the thread pool size
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()?;
+    
+    // Read both PAF files
+    let paf1_reader = get_paf_reader(paf1_path)?;
+    let paf2_reader = get_paf_reader(paf2_path)?;
+    
+    let mut paf1_lines = Vec::new();
+    let mut paf2_lines = Vec::new();
+    
+    // Read all lines from first PAF
+    for line_result in paf1_reader.lines() {
+        let line = line_result?;
+        if !line.trim().is_empty() && !line.starts_with('#') {
+            paf1_lines.push(line);
+        }
+    }
+    
+    // Read all lines from second PAF
+    for line_result in paf2_reader.lines() {
+        let line = line_result?;
+        if !line.trim().is_empty() && !line.starts_with('#') {
+            paf2_lines.push(line);
+        }
+    }
+    
+    println!("PAF1 records: {}", paf1_lines.len());
+    println!("PAF2 records: {}", paf2_lines.len());
+    
+    // Process tracepoint comparison
+    process_debug_chunk_compare_tracepoints(
+        &paf1_lines,
+        &paf2_lines,
+        query_fasta_path,
+        target_fasta_path,
+        mismatch,
+        gap_open1,
+        gap_ext1,
+        gap_open2,
+        gap_ext2,
+        max_diff,
+    );
+    
+    Ok(())
+}
+
+/// Process a chunk of lines in parallel for debugging tracepoint counts between two PAF files
+#[cfg(debug_assertions)]
+fn process_debug_chunk_compare_tracepoints(
+    lines1: &[String],
+    lines2: &[String],
+    query_fasta_path: &str,
+    target_fasta_path: &str,
+    mismatch: i32,
+    gap_open1: i32,
+    gap_ext1: i32,
+    gap_open2: i32,
+    gap_ext2: i32,
+    max_diff: usize,
+) {
+    use std::collections::HashMap;
+    
+    // Parse both PAF files into HashMaps for easy comparison
+    let mut paf1_records: HashMap<String, PafRecordWithTracepoints> = HashMap::new();
+    let mut paf2_records: HashMap<String, PafRecordWithTracepoints> = HashMap::new();
+    
+    // Parse first PAF file
+    for line in lines1 {
+        if let Some(record) = parse_paf_line_with_tracepoints(line) {
+            let key = create_alignment_key_simple(&record);
+            paf1_records.insert(key, record);
+        }
+    }
+    
+    // Parse second PAF file
+    for line in lines2 {
+        if let Some(record) = parse_paf_line_with_tracepoints(line) {
+            let key = create_alignment_key_simple(&record);
+            paf2_records.insert(key, record);
+        }
+    }
+    
+    // Find common alignments and compare tracepoint counts
+    let common_keys: Vec<_> = paf1_records.keys()
+        .filter(|k| paf2_records.contains_key(*k))
+        .cloned()
+        .collect();
+    
+    println!("=== TRACEPOINT COMPARISON SUMMARY ===");
+    println!("PAF1 records: {}", paf1_records.len());
+    println!("PAF2 records: {}", paf2_records.len());
+    println!("Common alignments: {}", common_keys.len());
+    println!("PAF1 unique: {}, PAF2 unique: {}", 
+             paf1_records.len() - common_keys.len(),
+             paf2_records.len() - common_keys.len());
+    println!();
+    
+    // Collect statistics
+    let mut total_tp_diff = 0i32;
+    let mut tp_diff_count = 0;
+    let mut max_tp_diff = 0i32;
+    let mut min_tp_diff = 0i32;
+    let mut identical_tp_count = 0;
+    
+    // Process common alignments and compare tracepoint counts
+    common_keys.par_iter().for_each(|key| {
+        let record1 = &paf1_records[key];
+        let record2 = &paf2_records[key];
+        
+        let tp_count1 = record1.tracepoint_count;
+        let tp_count2 = record2.tracepoint_count;
+        let tp_diff = tp_count2 as i32 - tp_count1 as i32;
+        
+        if tp_diff != 0 {
+            println!("TRACEPOINT COUNT DIFFERENCE:");
+            println!("  Alignment: {}:{}-{} {} {}:{}-{}", 
+                     record1.query_name, record1.query_start, record1.query_end,
+                     record1.strand, record1.target_name, record1.target_start, record1.target_end);
+            
+            // Show original data if available
+            if let Some(ref cigar1) = record1.cigar {
+                println!("  PAF1 CIGAR: {}", cigar1);
+            }
+            if let Some(ref tp1) = record1.tracepoints {
+                println!("  PAF1 Tracepoints: {}", tp1);
+            }
+            
+            if let Some(ref cigar2) = record2.cigar {
+                println!("  PAF2 CIGAR: {}", cigar2);
+            }
+            if let Some(ref tp2) = record2.tracepoints {
+                println!("  PAF2 Tracepoints: {}", tp2);
+            }
+            
+            println!("  PAF1 Tracepoint Count: {}", tp_count1);
+            println!("  PAF2 Tracepoint Count: {}", tp_count2);
+            println!("  Difference (PAF2 - PAF1): {}", tp_diff);
+            
+            // Calculate compression ratio if we have CIGAR
+            if let Some(ref cigar1) = record1.cigar {
+                let cigar_len = cigar1.len();
+                let tp_len = record1.tracepoints.as_ref().map(|tp| tp.len()).unwrap_or(0);
+                let compression_ratio = if cigar_len > 0 {
+                    tp_len as f64 / cigar_len as f64
+                } else {
+                    0.0
+                };
+                println!("  PAF1 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
+                         cigar_len, tp_len, compression_ratio);
+            }
+            
+            if let Some(ref cigar2) = record2.cigar {
+                let cigar_len = cigar2.len();
+                let tp_len = record2.tracepoints.as_ref().map(|tp| tp.len()).unwrap_or(0);
+                let compression_ratio = if cigar_len > 0 {
+                    tp_len as f64 / cigar_len as f64
+                } else {
+                    0.0
+                };
+                println!("  PAF2 Compression: CIGAR {} chars -> TP {} chars (ratio: {:.3})", 
+                         cigar_len, tp_len, compression_ratio);
+            }
+            
+            println!();
+        }
+    });
+    
+    // Calculate summary statistics
+    for key in &common_keys {
+        let record1 = &paf1_records[key];
+        let record2 = &paf2_records[key];
+        
+        let tp_count1 = record1.tracepoint_count;
+        let tp_count2 = record2.tracepoint_count;
+        let tp_diff = tp_count2 as i32 - tp_count1 as i32;
+        
+        if tp_diff == 0 {
+            identical_tp_count += 1;
+        } else {
+            tp_diff_count += 1;
+            total_tp_diff += tp_diff.abs();
+            max_tp_diff = max_tp_diff.max(tp_diff.abs());
+            min_tp_diff = if min_tp_diff == 0 { tp_diff.abs() } else { min_tp_diff.min(tp_diff.abs()) };
+        }
+    }
+    
+    println!("=== STATISTICS ===");
+    println!("  Alignments with identical tracepoint counts: {}", identical_tp_count);
+    println!("  Alignments with different tracepoint counts: {}", tp_diff_count);
+    if tp_diff_count > 0 {
+        println!("  Average absolute tracepoint difference: {:.2}", 
+                 total_tp_diff as f64 / tp_diff_count as f64);
+        println!("  Maximum tracepoint difference: {}", max_tp_diff);
+        println!("  Minimum tracepoint difference: {}", min_tp_diff);
+    }
+    println!("  Percentage with identical counts: {:.2}%", 
+             (identical_tp_count as f64 / common_keys.len() as f64) * 100.0);
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, disable_help_subcommand = true)]
 enum Args {
@@ -129,6 +419,10 @@ enum Args {
         /// Second PAF file for comparison (optional)
         #[arg(long = "paf2")]
         paf2: Option<String>,
+
+        /// Compare tracepoint counts instead of scores
+        #[arg(long = "compare-tracepoints", default_value_t = false)]
+        compare_tracepoints: bool,
 
         /// Number of threads to use (default: 4)
         #[arg(long = "threads", default_value_t = 4)]
@@ -284,6 +578,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Args::Debug {
             paf1,
             paf2,
+            compare_tracepoints,
             threads,
             query_fasta,
             target_fasta,
@@ -297,13 +592,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             match (&paf1, &paf2, &query_fasta, &target_fasta) {
                 (Some(paf1_path), Some(paf2_path), Some(query_fasta_path), Some(target_fasta_path)) => {
-                    // Two PAF files comparison mode
-                    info!("Comparing two PAF files: {} vs {}", paf1_path, paf2_path);
-                    process_two_paf_files(
-                        paf1_path, paf2_path, query_fasta_path, target_fasta_path,
-                        mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
-                        max_diff, threads
-                    )?;
+                    if compare_tracepoints {
+                        // Tracepoint comparison mode
+                        info!("Comparing tracepoint counts: {} vs {}", paf1_path, paf2_path);
+                        process_two_paf_files_tracepoints(
+                            paf1_path, paf2_path, query_fasta_path, target_fasta_path,
+                            mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
+                            max_diff, threads
+                        )?;
+                    } else {
+                        // Regular score comparison mode
+                        info!("Comparing alignment scores: {} vs {}", paf1_path, paf2_path);
+                        process_two_paf_files(
+                            paf1_path, paf2_path, query_fasta_path, target_fasta_path,
+                            mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2,
+                            max_diff, threads
+                        )?;
+                    }
                 }
                 (Some(paf1_path), None, Some(query_fasta_path), Some(target_fasta_path)) => {
                     // Single PAF file mode
