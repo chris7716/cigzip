@@ -331,6 +331,9 @@ fn process_debug_chunk_compare_tracepoints(
             println!();
         }
     });
+
+    let mut total_tp_count1 = 0usize;
+    let mut total_tp_count2 = 0usize;
     
     // Calculate summary statistics
     for key in &common_keys {
@@ -340,6 +343,10 @@ fn process_debug_chunk_compare_tracepoints(
         let tp_count1 = record1.tracepoint_count;
         let tp_count2 = record2.tracepoint_count;
         let tp_diff = tp_count2 as i32 - tp_count1 as i32;
+
+        // Accumulate totals
+        total_tp_count1 += tp_count1;
+        total_tp_count2 += tp_count2;
         
         if tp_diff == 0 {
             identical_tp_count += 1;
@@ -354,8 +361,8 @@ fn process_debug_chunk_compare_tracepoints(
     println!("=== STATISTICS ===");
     println!("  Alignments with identical tracepoint counts: {}", identical_tp_count);
     println!("  Alignments with different tracepoint counts: {}", tp_diff_count);
-    println!("  lib_tracepoints tracepoint counts: {}", tp_count1);
-    println!("  fastga tracepoint counts: {}", tp_count2);
+    println!("  lib_tracepoints tracepoint counts: {}", total_tp_count1);
+    println!("  fastga tracepoint counts: {}", total_tp_count2);
     if tp_diff_count > 0 {
         println!("  Absolute tracepoint difference: {}", total_tp_diff);
     }
