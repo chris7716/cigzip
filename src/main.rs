@@ -1231,9 +1231,19 @@ fn process_decompress_chunk(
                 );
                 std::process::exit(1);
             });
+            println!("DEBUG tracepoints_to_cigar_fastga inputs:");
+println!("  tracepoints: {:?}", tracepoints);
+println!("  trace_spacing: {}", trace_spacing);
+println!("  query_seq length: {}", query_seq.len());
+println!("  target_seq length: {}", target_seq.len());
+println!("  query_start: {}", query_start);
+println!("  target_start: {}", target_start);
+println!("  query_seq preview: {}", String::from_utf8_lossy(&query_seq[..std::cmp::min(50, query_seq.len())]));
+println!("  target_seq preview: {}", String::from_utf8_lossy(&target_seq[..std::cmp::min(50, target_seq.len())]));
+println!();
             tracepoints_to_cigar_fastga(
                 &tracepoints,
-                trace_spacing,
+                100,
                 &query_seq,
                 &target_seq,
                 query_start,
