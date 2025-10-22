@@ -1441,52 +1441,160 @@ fn process_compress_chunk(lines: &[String], mixed: bool, variable: bool, max_dif
             (paf_target_start, paf_target_end, raw_cigar.to_string())
         };
 
-        // Convert CIGAR based on options and add type prefix
-        let tracepoints_str = if mixed {
-            // Use mixed representation
-            let tp = cigar_to_mixed_tracepoints(&cigar, max_diff);
-            format_mixed_tracepoints(&tp)
-        } else if variable {
-            // Use variable tracepoints
-            let tp = cigar_to_variable_tracepoints(&cigar, max_diff);
-            format_variable_tracepoints(&tp)
-        } else {
-            // Use cigar2tp for standard tracepoints
-            let mut c = CigarPosition {
-                apos: query_start as i64,
-                bpos: target_start as i64,  // Use transformed coordinate
-                cptr: 0,
-                len: 0,
-            };
-            let mut bundle = TPBundle {
-                diff: 0,
-                tlen: 0,
-                trace: Vec::new(),
-            };
-            lib_tracepoints::cigar2tp(
-                &mut c, 
+        // Handle overflow scenario for standard tracepoints
+        if !mixed && !variable {
+            // Process with potential splitting
+            process_with_overflow_handling(
+                &fields, // Pass reference instead of moving
                 &cigar, 
-                query_end as i64, 
-                target_end as i64,  // Use transformed coordinate
-                100 as i64, 
-                &mut bundle
+                query_start, 
+                query_end, 
+                target_start, 
+                target_end,
+                cg_field
             );
+        } else {
+            // Original single-record processing for mixed/variable
+            let tracepoints_str = if mixed {
+                let tp = cigar_to_mixed_tracepoints(&cigar, max_diff);
+                format_mixed_tracepoints(&tp)
+            } else {
+                let tp = cigar_to_variable_tracepoints(&cigar, max_diff);
+                format_variable_tracepoints(&tp)
+            };
+            
+            let new_line = line.replace(cg_field, &format!("tp:Z:{}", tracepoints_str));
+            println!("{}", new_line);
+        }
+    });
+}
 
-            // Convert bundle.trace to Vec<(usize, usize)>
-            let mut tp_vec = Vec::new();
-            let trace = &bundle.trace;
-            let mut i = 0;
-            while i + 1 < trace.len() {
-                tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
-                i += 2;
-            }
-            format_tracepoints(&tp_vec)
+fn process_with_overflow_handling(
+    fields: &[&str], // Change to take a reference instead of moving
+    cigar: &str,
+    initial_query_start: usize,
+    final_query_end: usize,
+    initial_target_start: usize,
+    final_target_end: usize,
+    cg_field: &str,
+) {
+    let mut c = CigarPosition {
+        apos: initial_query_start as i64,
+        bpos: initial_target_start as i64,
+        cptr: 0,
+        len: 0,
+    };
+
+    let mut segment_count = 0;
+    
+    loop {
+        let segment_query_start = c.apos as usize;
+        let segment_target_start = c.bpos as usize;
+        
+        let mut bundle = TPBundle {
+            diff: 0,
+            tlen: 0,
+            trace: Vec::new(),
         };
 
-        // Print the result
-        let new_line = line.replace(cg_field, &format!("tp:Z:{}", tracepoints_str));
-        println!("{}", new_line);
-    });
+        // Process CIGAR until overflow or completion
+        let stop_pos = lib_tracepoints::cigar2tp(
+            &mut c,
+            cigar,
+            final_query_end as i64,
+            final_target_end as i64,
+            100,
+            &mut bundle,
+        );
+
+        let segment_query_end = c.apos as usize;
+        let segment_target_end = c.bpos as usize;
+
+        // Convert bundle.trace to formatted tracepoints
+        let mut tp_vec = Vec::new();
+        let trace = &bundle.trace;
+        let mut i = 0;
+        while i + 1 < trace.len() {
+            tp_vec.push((trace[i] as usize, trace[i + 1] as usize));
+            i += 2;
+        }
+        let tracepoints_str = format_tracepoints(&tp_vec);
+
+        // Create modified PAF record for this segment by cloning fields
+        let mut new_fields: Vec<String> = fields.iter().map(|&s| s.to_string()).collect();
+        
+        // Update coordinates for this segment
+        new_fields[2] = segment_query_start.to_string();  // query_start
+        new_fields[3] = segment_query_end.to_string();    // query_end
+        
+        // Update target coordinates (handle strand)
+        if fields[4] == "-" {
+            // For reverse strand, need to transform back to PAF coordinates
+            let target_len: usize = fields[6].parse().unwrap();
+            new_fields[7] = (target_len - segment_target_end).to_string();
+            new_fields[8] = (target_len - segment_target_start).to_string();
+        } else {
+            new_fields[7] = segment_target_start.to_string();
+            new_fields[8] = segment_target_end.to_string();
+        }
+
+        // Update alignment statistics for this segment
+        let alignment_length = segment_query_end - segment_query_start;
+        let matches = alignment_length.saturating_sub(bundle.diff.abs() as usize);
+        new_fields[9] = matches.to_string();              // residue_matches
+        new_fields[10] = alignment_length.to_string();    // alignment_block_length
+
+        // Replace CIGAR with tracepoints
+        let new_line = new_fields.join("\t").replace(cg_field, &format!("tp:Z:{}", tracepoints_str));
+        
+        // Add segment suffix if this is a split record
+        if segment_count > 0 {
+            println!("{}	sg:i:{}", new_line, segment_count);
+        } else if stop_pos < cigar.len() && c.len > 0 {
+            // This will be split, add segment marker to first record too
+            println!("{}	sg:i:0", new_line);
+        } else {
+            println!("{}", new_line);
+        }
+
+        segment_count += 1;
+
+        // Check if we've processed the entire CIGAR
+        if stop_pos >= cigar.len() || c.len == 0 {
+            break;
+        }
+
+        // Handle any remaining operation that caused the overflow
+        if c.len > 0 {
+            handle_overflow_operation(&mut c, cigar);
+        }
+    }
+}
+
+fn handle_overflow_operation(c: &mut CigarPosition, cigar: &str) {
+    let bytes = cigar.as_bytes();
+    if c.cptr < bytes.len() {
+        let op = bytes[c.cptr] as char;
+        match op {
+            'I' => {
+                // Skip remaining insertion (affects query position only)
+                c.apos += c.len as i64;
+            }
+            'D' => {
+                // Skip remaining deletion (affects target position only)  
+                c.bpos += c.len as i64;
+            }
+            _ => {
+                // For other operations, advance both positions
+                c.apos += c.len as i64;
+                c.bpos += c.len as i64;
+            }
+        }
+        
+        // Move to next operation
+        c.cptr += 1;
+        c.len = 0;
+    }
 }
 
 /// Process a chunk of lines in parallel for decompression
